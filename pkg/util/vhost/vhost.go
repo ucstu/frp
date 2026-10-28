@@ -104,6 +104,14 @@ func (v *Muxer) Close() error {
 	return v.listener.Close()
 }
 
+func (v *Muxer) Lookup(host string) (string, bool) {
+	listener, ok := v.getListener(host, "", "")
+	if !ok {
+		return "", false
+	}
+	return listener.proxyName, true
+}
+
 type ChooseEndpointFunc func() (string, error)
 
 type CreateConnFunc func(remoteAddr string) (net.Conn, error)
@@ -112,6 +120,7 @@ type CreateConnByEndpointFunc func(endpoint, remoteAddr string) (net.Conn, error
 
 // RouteConfig is the params used to match HTTP requests
 type RouteConfig struct {
+	ProxyName       string
 	Domain          string
 	Location        string
 	RewriteHost     string
@@ -130,6 +139,7 @@ type RouteConfig struct {
 // then rewrite the host header to rewriteHost
 func (v *Muxer) Listen(ctx context.Context, cfg *RouteConfig) (l *Listener, err error) {
 	l = &Listener{
+		proxyName:       cfg.ProxyName,
 		name:            cfg.Domain,
 		location:        cfg.Location,
 		routeByHTTPUser: cfg.RouteByHTTPUser,
@@ -224,6 +234,7 @@ func (v *Muxer) handle(c net.Conn) {
 }
 
 type Listener struct {
+	proxyName       string
 	name            string
 	location        string
 	routeByHTTPUser string

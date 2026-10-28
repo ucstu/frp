@@ -46,7 +46,7 @@ func NewHTTPSProxy(baseProxy *BaseProxy) Proxy {
 
 func (pxy *HTTPSProxy) Run() (remoteAddr string, err error) {
 	xl := pxy.xl
-	routeConfig := &vhost.RouteConfig{}
+	routeConfig := &vhost.RouteConfig{ProxyName: pxy.name}
 
 	defer func() {
 		if err != nil {

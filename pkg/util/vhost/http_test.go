@@ -18,6 +18,48 @@ import (
 	netpkg "github.com/fatedier/frp/pkg/util/net"
 )
 
+func TestReadOnlyHTTPRoutes(t *testing.T) {
+	routes := NewHTTPReverseProxy(HTTPReverseProxyOptions{}, NewRouters())
+	exact := RouteConfig{Domain: "example.com", Location: "/api", RouteByHTTPUser: "alice", ProxyName: "private"}
+	wildcard := RouteConfig{Domain: "*.example.com", Location: "/", ProxyName: "wildcard"}
+	require.NoError(t, routes.Register(exact))
+	require.NoError(t, routes.Register(wildcard))
+	require.NoError(t, routes.Register(RouteConfig{Domain: "empty.test"}))
+	for _, test := range []struct {
+		target, host, authorization, proxyAuthorization, want string
+		found                                                 bool
+	}{
+		{"/api/item", "EXAMPLE.COM:80", "alice", "bob", "private", true},
+		{"http://example.com/api/item", "example.com", "bob", "alice", "private", true},
+		{"http://example.com/api/item", "example.com", "alice", "", "private", true},
+		{"http://example.com/api/item", "example.com", "alice", "bob", "", false},
+		{"/api/item", "example.com", "bob", "", "", false},
+		{"/other", "example.com", "alice", "", "", false},
+		{"/", "child.example.com", "", "", "wildcard", true},
+		{"/", "empty.test", "", "", "", true},
+		{"/", "unknown.test", "", "", "", false},
+	} {
+		request := httptest.NewRequest(http.MethodGet, test.target, nil)
+		request.Host = test.host
+		if test.authorization != "" {
+			request.SetBasicAuth(test.authorization, "secret")
+		}
+		if test.proxyAuthorization != "" {
+			request.Header.Set("Proxy-Authorization", httppkg.BasicAuth(test.proxyAuthorization, "secret"))
+		}
+		name, found := routes.Lookup(request)
+		require.Equal(t, test.found, found, "%+v", test)
+		require.Equal(t, test.want, name, "%+v", test)
+	}
+	private := func(name string) bool { return name == "private" }
+	require.True(t, routes.Match("EXAMPLE.COM", private))
+	routes.UnRegister(exact)
+	require.False(t, routes.Match("example.com", private))
+	require.True(t, routes.Match("child.example.com", func(name string) bool { return name == "wildcard" }))
+	routes.UnRegister(wildcard)
+	require.False(t, routes.Match("child.example.com", func(string) bool { return true }))
+}
+
 func TestHTTPConnectTunnel(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

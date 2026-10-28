@@ -165,6 +165,20 @@ func (rp *HTTPReverseProxy) GetRouteConfig(domain, location, routeByHTTPUser str
 	return nil
 }
 
+func (rp *HTTPReverseProxy) Lookup(req *http.Request) (string, bool) {
+	host, _ := httppkg.CanonicalHost(req.Host)
+	if route := rp.GetRouteConfig(host, req.URL.Path, getRequestRouteUser(req)); route != nil {
+		return route.ProxyName, true
+	}
+	return "", false
+}
+
+func (rp *HTTPReverseProxy) Match(host string, match func(string) bool) bool {
+	return rp.vhostRouter.match(host, func(route any) bool {
+		return match(route.(*RouteConfig).ProxyName)
+	})
+}
+
 // CreateConnection create a new connection by route config
 func (rp *HTTPReverseProxy) CreateConnection(reqRouteInfo *RequestRouteInfo, byEndpoint bool) (net.Conn, error) {
 	host, _ := httppkg.CanonicalHost(reqRouteInfo.Host)

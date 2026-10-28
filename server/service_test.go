@@ -21,6 +21,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"runtime"
 	"strings"
 	"sync"
@@ -43,6 +44,25 @@ import (
 	"github.com/fatedier/frp/server/registry"
 	"github.com/fatedier/frp/server/visitor"
 )
+
+func TestRouteReaderWithoutVhosts(t *testing.T) {
+	config := new(v1.ServerConfig)
+	require.NoError(t, config.Complete())
+	config.BindAddr, config.ProxyBindAddr, config.BindPort = "127.0.0.1", "127.0.0.1", 0
+	service, err := NewService(config)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, service.Close()) })
+	name, found := service.LookupHTTP(httptest.NewRequest(http.MethodGet, "http://example.com/", nil))
+	require.Empty(t, name)
+	require.False(t, found)
+	name, found = service.LookupHTTPS("example.com")
+	require.Empty(t, name)
+	require.False(t, found)
+	require.False(t, service.MatchHTTP("example.com", func(string) bool {
+		t.Fatal("predicate called without HTTP vhost")
+		return true
+	}))
+}
 
 func TestWriteWithDeadlineTimesOutAndClearsDeadline(t *testing.T) {
 	serverConn, clientConn := net.Pipe()

@@ -144,6 +144,42 @@ type Service struct {
 }
 
 func NewService(cfg *v1.ServerConfig) (*Service, error) {
+	return newService(cfg, nil)
+}
+
+func NewEmbeddedService(cfg *v1.ServerConfig, httpsListener net.Listener) (*Service, error) {
+	return newService(cfg, httpsListener)
+}
+
+type RouteReader interface {
+	LookupHTTP(*http.Request) (string, bool)
+	LookupHTTPS(string) (string, bool)
+	MatchHTTP(string, func(string) bool) bool
+}
+
+func (svr *Service) HTTPHandler() http.Handler { return svr.rc.HTTPReverseProxy }
+
+func (svr *Service) LookupHTTP(request *http.Request) (string, bool) {
+	if svr.rc.HTTPReverseProxy == nil {
+		return "", false
+	}
+	return svr.rc.HTTPReverseProxy.Lookup(request)
+}
+
+func (svr *Service) LookupHTTPS(host string) (string, bool) {
+	if svr.rc.VhostHTTPSMuxer == nil {
+		return "", false
+	}
+	return svr.rc.VhostHTTPSMuxer.Lookup(host)
+}
+
+func (svr *Service) MatchHTTP(host string, match func(string) bool) bool {
+	return svr.rc.HTTPReverseProxy != nil && svr.rc.HTTPReverseProxy.Match(host, match)
+}
+
+var _ RouteReader = (*Service)(nil)
+
+func newService(cfg *v1.ServerConfig, embedded net.Listener) (*Service, error) {
 	tlsConfig, err := transport.NewServerTLSConfig(
 		cfg.Transport.TLS.CertFile,
 		cfg.Transport.TLS.KeyFile,
@@ -306,14 +342,15 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 			ResponseHeaderTimeoutS: cfg.VhostHTTPTimeout,
 		}, svr.httpVhostRouter)
 		svr.rc.HTTPReverseProxy = rp
-
+	}
+	if cfg.VhostHTTPPort > 0 && embedded == nil {
 		address := net.JoinHostPort(cfg.ProxyBindAddr, strconv.Itoa(cfg.VhostHTTPPort))
 		protocols := new(http.Protocols)
 		protocols.SetHTTP1(true)
 		protocols.SetUnencryptedHTTP2(true)
 		server := &http.Server{
 			Addr:              address,
-			Handler:           rp,
+			Handler:           svr.rc.HTTPReverseProxy,
 			ReadHeaderTimeout: 60 * time.Second,
 			Protocols:         protocols,
 		}
@@ -337,7 +374,9 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 	// Create https vhost muxer.
 	if cfg.VhostHTTPSPort > 0 {
 		var l net.Listener
-		if httpsMuxOn {
+		if embedded != nil {
+			l = embedded
+		} else if httpsMuxOn {
 			l = svr.muxer.ListenHTTPS(1)
 		} else {
 			address := net.JoinHostPort(cfg.ProxyBindAddr, strconv.Itoa(cfg.VhostHTTPSPort))

@@ -24,6 +24,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestReadOnlyTLSRoutes(t *testing.T) {
+	muxer := &Muxer{registryRouter: NewRouters()}
+	config := &RouteConfig{Domain: "*.example.com", ProxyName: "tls"}
+	listener, err := muxer.Listen(context.Background(), config)
+	require.NoError(t, err)
+	config.ProxyName = "changed"
+	name, found := muxer.Lookup("CHILD.EXAMPLE.COM")
+	require.True(t, found)
+	require.Equal(t, "tls", name)
+	_, found = muxer.Lookup("example.com")
+	require.False(t, found)
+	require.NoError(t, listener.Close())
+	_, found = muxer.Lookup("child.example.com")
+	require.False(t, found)
+	listener, err = muxer.Listen(context.Background(), &RouteConfig{Domain: "*"})
+	require.NoError(t, err)
+	name, found = muxer.Lookup("anything.test")
+	require.True(t, found)
+	require.Empty(t, name)
+	require.NoError(t, listener.Close())
+}
+
 func TestRoutersGet(t *testing.T) {
 	routers := NewRouters()
 	require.NoError(t, routers.Add("example.com", "/api", "alice", "exact-user"))

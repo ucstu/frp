@@ -93,6 +93,34 @@ func (r *Routers) Del(domain, location, httpUser string) {
 	routersByHTTPUser[httpUser] = newVrs
 }
 
+func (r *Routers) match(host string, match func(any) bool) bool {
+	host = strings.ToLower(host)
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+	hasRoutes := func(domain string) bool {
+		for _, routes := range r.indexByDomain[domain] {
+			for _, route := range routes {
+				if match(route.payload) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	if hasRoutes(host) {
+		return true
+	}
+	labels := strings.Split(host, ".")
+	for len(labels) >= 3 {
+		labels[0] = "*"
+		if hasRoutes(strings.Join(labels, ".")) {
+			return true
+		}
+		labels = labels[1:]
+	}
+	return hasRoutes("*")
+}
+
 // Get returns the best location match for an exact host and exact HTTP user.
 // It does not apply all-users, wildcard-domain, or catch-all-domain fallback.
 func (r *Routers) Get(host, path, httpUser string) (vr *Router, exist bool) {
